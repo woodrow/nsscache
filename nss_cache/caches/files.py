@@ -138,6 +138,11 @@ class FilesCache(caches.Cache):
                      self.temp_cache_filename)
       raise error.EmptyMap(self.temp_cache_filename + ' is empty')
 
+    if not cache_data.Verify():
+      self.log.warn('verify failed: map verify failed')
+      self._Rollback()
+      return False
+
     cache_keys = set()
     # Use PopItem() so we free our memory if multiple maps are Verify()ed.
     try:

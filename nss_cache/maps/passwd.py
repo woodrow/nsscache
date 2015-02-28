@@ -50,6 +50,21 @@ class PasswdMap(maps.Map):
       raise TypeError
     return super(PasswdMap, self).Add(entry)
 
+  def Verify(self):
+    # ensure uids are unique
+    passwd_by_uid = {}
+    for passwd in self:
+      if passwd.uid not in passwd_by_uid:
+        passwd_by_uid[passwd.uid] = passwd
+      else:
+        self.log.warn(
+          ('PasswdMap verify failed: '
+          'Duplicate uidnumber {} for user {} and {}').format(
+          passwd.uid, passwd_by_uid[passwd.uid].name, passwd.name))
+        return False
+
+    return True
+
 
 class PasswdMapEntry(maps.MapEntry):
   """This class represents NSS passwd map entries."""

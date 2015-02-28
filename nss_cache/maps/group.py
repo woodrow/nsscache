@@ -44,6 +44,21 @@ class GroupMap(maps.Map):
       raise TypeError
     return super(GroupMap, self).Add(entry)
 
+  def Verify(self):
+    # ensure gids are unique
+    group_by_gid = {}
+    for group in self:
+      if group.gid not in group_by_gid:
+        group_by_gid[group.gid] = group
+      else:
+        self.log.warn(
+          ('GroupMap verify failed: '
+          'Duplicate gidnumber {} for group {} and {}').format(
+          group.gid, group_by_gid[group.gid].name, group.name))
+        return False
+
+    return True
+
 
 class GroupMapEntry(maps.MapEntry):
   """This class represents NSS group map entries."""
