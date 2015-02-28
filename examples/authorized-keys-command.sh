@@ -7,6 +7,6 @@
 #
 # AuthorizedKeysCommand /path/to/nsscache/authorized-keys-command.sh
 
-awk -F: -v name="$1" '$0 ~ name {print $2}' /etc/sshkey.cache | \
+awk -F: -v name="$1" '$1 == name {print $2}' /etc/sshkey.cache | \
     tr -d "[']" | \
     sed -e 's/, /\n/g'
