@@ -18,6 +18,10 @@
 
 __author__ = ('woodrow@stripe.com',)
 
+import sys
+sys.path.insert(0, '/home/woodrow/stripe/conjur-api-python')
+import random
+
 import conjur
 import conjur.config
 
@@ -75,6 +79,8 @@ class ConjurSource(source.Source):
 
     self.pwmap_cache = None
     self.pwmap_cache_last_fetch = None
+
+    self.group_cache = {}
 
     if client is None:
       # ReconnectLDAPObject should handle interrupted ldap transactions.
@@ -162,17 +168,21 @@ class ConjurSource(source.Source):
     users = self.filter_group_members_by_kind(members, 'user')
     for u in users:
         parts = u['member'].split(':')
-        assert(parts[0] == 'stripe' and parts[1] == 'user' and len(parts) == 3)
+        assert(parts[0] == self.conf['account'] and parts[1] == 'user' and len(parts) == 3)
         conjur_user = self.client.user(parts[2])
         assert(conjur_user.exists())
+        user_annotations = conjur_user.resource.annotations
+
         pw = passwd.PasswdMapEntry()
         pw.name = conjur_user.login
-        pw.uid = conjur_user.uidnumber
-        pw.gid = conjur_user.uidnumber  # this is a hack
-        pw.gecos = conjur_user.login  # needs attrs
-        pw.shell = '/bin/bash'  # needs attrs
-        pw.dir = os.path.join('/pay/home/', pw.name)  # needs attrs
-        pw.passwd = '!'
+        pw.uid = int(conjur_user.uidnumber)
+        #pw.gid = int(user_annotations['posixAccount/gidNumber'])
+        pw.gid = int(conjur_user.uidnumber)
+        pw.gecos = user_annotations.get('posixAccount/gecos', pw.name)
+        pw.shell = user_annotations.get('posixAccount/loginShell', '')
+        #pw.dir = user_annotations['posixAccount/homeDirectory']
+        pw.dir = ''
+        pw.passwd = 'x'
 
         pwmap.Add(pw)
 
@@ -204,18 +214,41 @@ class ConjurSource(source.Source):
     groups = self.filter_group_members_by_kind(members, 'group')
     for g in groups:
         parts = g['member'].split(':')
-        assert(parts[0] == 'stripe' and parts[1] == 'group' and len(parts) == 3)
+        assert(parts[0] == self.conf['account'] and parts[1] == 'group' and len(parts) == 3)
         conjur_group = self.client.group(parts[2])
-        #assert(group.exists())
+        assert(conjur_group.exists())
+        group_annotations = conjur_group.resource.annotations
+
         gr = group.GroupMapEntry()
         gr.name = conjur_group.id
-        gr.gid = 50000  # needs attrs
-        gr.members = []
-        gr.passwd = '!'
+        #gr.gid = random.randrange(100,999)
+        gr.gid = group_annotations['posixGroup/gidNumber']
+        gr.members = self.expand_groups(conjur_group)
+        gr.passwd = 'x'
 
         gmap.Add(gr)
 
     return gmap
+
+  def expand_groups(self, conjur_group):
+      print("keys", self.group_cache.keys(), "group", conjur_group.id)
+      if conjur_group.id in self.group_cache:
+          return self.group_cache[conjur_group.id]
+
+      users = set()
+      members = conjur_group.members()
+      group_users = self.filter_group_members_by_kind(members, 'user')
+      users.update([u['member'].split(':')[2] for u in group_users])
+      for group in self.filter_group_members_by_kind(members, 'group'):
+          parts = group['member'].split(':')
+          assert(parts[0] == self.conf['account'] and parts[1] == 'group' and len(parts) == 3)
+          child_conjur_group = self.client.group(parts[2])
+          assert(child_conjur_group.exists())
+          users.update(self.expand_groups(child_conjur_group))
+
+      self.group_cache[conjur_group.id] = users
+
+      return list(users)
 
 
 #  def Verify(self, since=None):
