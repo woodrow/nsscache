@@ -138,10 +138,10 @@ class ConjurSource(source.Source):
 
     for pw in pwmap:
         keys = [k for k in self.client.public_keys(pw.name).split('\n') if len(k) > 0]
-        for k in keys:
+        if keys:
             skey = sshkey.SshkeyMapEntry()
             skey.name = pw.name
-            skey.sshkey = k
+            skey.sshkey = ', '.join(keys)
             sshmap.Add(skey)
 
     return sshmap
