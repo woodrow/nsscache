@@ -225,6 +225,9 @@ class Map(object):
       raise KeyError # Callers expect a KeyError rather than IndexError
     return self._data.pop(index_key) # Throws the KeyError if empty.
 
+  def Verify(self):
+    return True
+
   def SetModifyTimestamp(self, value):
     """Set the last modify timestamp of this map.
 
