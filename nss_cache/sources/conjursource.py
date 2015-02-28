@@ -19,6 +19,10 @@
 __author__ = ('woodrow@stripe.com',)
 
 import conjur
+import conjur.config
+
+import os.path
+import datetime
 
 import calendar
 import logging
@@ -53,8 +57,8 @@ class ConjurSource(source.Source):
   CONJUR_CERT_FILE = None
 
   # conjur search defaults
-  CONJUR_POSIX_USER_GROUP = 'posix_users'
-  CONJUR_POSIX_GROUP_GROUP = 'posix_groups'
+  CONJUR_GROUP_POSIX_USERS = 'posix_users'
+  CONJUR_GROUP_POSIX_GROUPS = 'posix_groups'
 
   # for registration
   name = 'conjur'
@@ -70,6 +74,9 @@ class ConjurSource(source.Source):
 
     self._SetDefaults(conf)
     self._conf = conf
+
+    self.pwmap_cache = None
+    self.pwmap_cache_last_fetch = None
 
     if client is None:
       # ReconnectLDAPObject should handle interrupted ldap transactions.
@@ -88,12 +95,13 @@ class ConjurSource(source.Source):
 
   def _SetDefaults(self, configuration):
     """Set defaults if necessary."""
-    # LDAPI URLs must be url escaped socket filenames; rewrite if necessary.
-    if 'conjur_uri' in configuration:
-        if not configuration['conjur_uri'].startswith('https://'):
-            raise error.ConfigurationError('conjur_uri must start with https://')
-    else:
+
+    # conjur client params
+    if not 'conjur_uri' in configuration:
       configuration['conjur_uri'] = self.CONJUR_URI
+    if not configuration['conjur_uri'].startswith('https://'):
+        raise error.ConfigurationError('conjur_uri must start with https://')
+
     if not 'conjur_username' in configuration:
       configuration['conjur_username'] = self.CONJUR_USERNAME
     if not 'conjur_api_key' in configuration:
@@ -105,6 +113,12 @@ class ConjurSource(source.Source):
     if not 'conjur_cert_file' in configuration:
       configuration['conjur_cert_file'] = self.CONJUR_CERT_FILE
 
+    # conjur group search params
+    if not 'conjur_group_posix_users' in configuration:
+      configuration['conjur_group_posix_users'] = self.CONJUR_GROUP_POSIX_USERS
+    if not 'conjur_group_posix_groups' in configuration:
+      configuration['conjur_group_posix_groups'] = self.CONJUR_GROUP_POSIX_GROUPS
+
   def GetSshkeyMap(self, since=None):
     """Return the sshkey map from this source.
 
@@ -115,11 +129,26 @@ class ConjurSource(source.Source):
     Returns:
       instance of maps.SshkeyMap
     """
-    return SshkeyUpdateGetter().GetUpdates(source=self,
-                                           search_base=self.conf['base'],
-                                           search_filter=self.conf['filter'],
-                                           search_scope=self.conf['scope'],
-                                           since=since)
+
+    sshmap = sshkey.SshkeyMap()
+
+    if (self.pwmap_cache and
+            (datetime.datetime.utcnow() - self.pwmap_cache_last_fetch) <
+            datetime.timedelta(minutes=5)):
+        pwmap = self.pwmap_cache
+    else
+        pwmap = self.GetPasswdMap(since)
+
+    for pw in pwmap:
+        keys = [k for k in api.public_keys(pw.name).split('\n') if len(k) > 0]
+        for k in keys:
+            skey = sshkey.SshkeyMapEntry()
+            skey.name = pw.name
+            skey.sshkey = k
+            sshmap.Add(skey)
+
+    return sshmap
+
   def GetPasswdMap(self, since=None):
     """Return the passwd map from this source.
 
@@ -130,11 +159,38 @@ class ConjurSource(source.Source):
     Returns:
       instance of maps.PasswdMap
     """
-    return PasswdUpdateGetter().GetUpdates(source=self,
-                                           search_base=self.conf['base'],
-                                           search_filter=self.conf['filter'],
-                                           search_scope=self.conf['scope'],
-                                           since=since)
+
+    pwmap = passwd.PasswdMap()
+    members = self.client.group(self.conf.conjur_group_posix_users).members()
+    users = self.filter_group_members_by_kind(members, 'user')
+    for u in users:
+        parts = u.split(':')
+        assert(parts[0] == 'stripe' and parts[1] == 'user' and len(parts) == 3)
+        user = api.user(parts[2]))
+        assert(user.exists())
+        pw = passwd.PasswdMapEntry()
+        pw.name = user.login
+        pw.uid = user.uidnumber
+        pw.gid = user.uidnumber  # this is a hack
+        pw.gecos = user.login  # needs attrs
+        pw.shell = '/bin/bash'  # needs attrs
+        pw.dir = os.path.join('/pay/home/', pw.name)  # needs attrs
+        pw.passwd = '!'
+
+        pwmap.Add(pw)
+
+    self.pwmap_cache = pwmap
+    self.pwmap_cache_last_fetch = datetime.datetime.utcnow()
+
+    return pwmap
+
+  def filter_group_members_by_kind(self, members, kind)
+      filtered = []
+      resource_prefix = '{}:{}:'.format(self.conf.conjur_account, kind)
+      for m in members:
+          if m['member'].startswith(resource_prefix):
+              filtered.append(m)
+      return filtered
 
   def GetGroupMap(self, since=None):
     """Return the group map from this source.
@@ -146,11 +202,24 @@ class ConjurSource(source.Source):
     Returns:
       instance of maps.GroupMap
     """
-    return GroupUpdateGetter(self.conf).GetUpdates(source=self,
-                                          search_base=self.conf['base'],
-                                          search_filter=self.conf['filter'],
-                                          search_scope=self.conf['scope'],
-                                          since=since)
+    gmap = group.GroupMap()
+    members = self.client.group(self.conf.conjur_group_posix_groups).members()
+    groups = self.filter_group_members_by_kind(members, 'group')
+    for g in groups:
+        parts = g.split(':')
+        assert(parts[0] == 'stripe' and parts[1] == 'group' and len(parts) == 3)
+        group = api.group(parts[2]))
+        #assert(group.exists())
+        gr = group.GroupMapEntry()
+        gr.name = group.id
+        gr.gid = 50000  # needs attrs
+        gr.members = []
+        gr.passwd = '!'
+
+        gmap.Add(gr)
+
+    return gmap
+
 
 #  def Verify(self, since=None):
 #    """Verify that this source is contactable and can be queried for data."""
@@ -263,9 +332,10 @@ class PasswdUpdateGetter(UpdateGetter):
 
   def __init__(self):
     super(PasswdUpdateGetter, self).__init__()
-    self.attrs = ['uid', 'uidNumber', 'gidNumber', 'gecos', 'cn',
-                  'homeDirectory', 'loginShell', 'fullName']
-    self.essential_fields = ['uid', 'uidNumber', 'gidNumber', 'homeDirectory']
+    self.attrs = ['userid', 'uidnumber']
+    self.annotations = ['gidNumber', 'gecos', 'homeDirectory', 'loginShell',
+            'fullName']
+    self.essential_annotations = ['gidNumber', 'homeDirectory']
 
   def CreateMap(self):
     """Returns a new PasswdMap instance to have PasswdMapEntries added to it."""
