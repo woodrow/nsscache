@@ -28,17 +28,9 @@ import conjur.config
 import os.path
 import datetime
 
-import calendar
-import logging
-import time
-import urllib
-
 from nss_cache import error
-from nss_cache.maps import automount
 from nss_cache.maps import group
-from nss_cache.maps import netgroup
 from nss_cache.maps import passwd
-from nss_cache.maps import shadow
 from nss_cache.maps import sshkey
 from nss_cache.sources import source
 
@@ -77,10 +69,10 @@ class ConjurSource(source.Source):
     self._SetDefaults(conf)
     self._conf = conf
 
-    self.pwmap_cache = None
-    self.pwmap_cache_last_fetch = None
+    self._pwmap_cache = None
+    self._pwmap_cache_last_fetch = None
 
-    self.group_cache = {}
+    self._group_cache = {}
 
     if client is None:
       # ReconnectLDAPObject should handle interrupted ldap transactions.
@@ -135,10 +127,10 @@ class ConjurSource(source.Source):
 
     sshmap = sshkey.SshkeyMap()
 
-    if (self.pwmap_cache and
-            (datetime.datetime.utcnow() - self.pwmap_cache_last_fetch) <
+    if (self._pwmap_cache and
+            (datetime.datetime.utcnow() - self._pwmap_cache_last_fetch) <
             datetime.timedelta(minutes=5)):
-        pwmap = self.pwmap_cache
+        pwmap = self._pwmap_cache
     else:
         pwmap = self.GetPasswdMap(since)
 
@@ -180,13 +172,13 @@ class ConjurSource(source.Source):
         pw.gid = int(conjur_user.uidnumber)
         pw.gecos = user_annotations.get('posixAccount/gecos', pw.name)
         pw.shell = user_annotations.get('posixAccount/loginShell', '')
-        #pw.dir = user_annotations['posixAccount/homeDirectory']
+        pw.dir = user_annotations['posixAccount/homeDirectory']
         pw.dir = ''
         pw.passwd = 'x'
 
         pwmap.Add(pw)
 
-    self.pwmap_cache = pwmap
+    self._pwmap_cache = pwmap
     self.pwmap_cache_last_fetch = datetime.datetime.utcnow()
 
     return pwmap
@@ -219,21 +211,44 @@ class ConjurSource(source.Source):
         assert(conjur_group.exists())
         group_annotations = conjur_group.resource.annotations
 
+        if 'posixGroup/gidNumber' not in group_annotations:
+            continue
+
         gr = group.GroupMapEntry()
         gr.name = conjur_group.id
+        print(conjur_group.id)
         #gr.gid = random.randrange(100,999)
-        gr.gid = group_annotations['posixGroup/gidNumber']
+        gr.gid = int(group_annotations['posixGroup/gidNumber'])
         gr.members = self.expand_groups(conjur_group)
         gr.passwd = 'x'
 
         gmap.Add(gr)
 
+    # user groups
+    if (self._pwmap_cache and
+            (datetime.datetime.utcnow() - self._pwmap_cache_last_fetch) <
+            datetime.timedelta(minutes=5)):
+        pwmap = self._pwmap_cache
+    else:
+        pwmap = self.GetPasswdMap(since)
+
+    for pw in pwmap:
+        gr = group.GroupMapEntry()
+        gr.name = pw.name
+        gr.gid = pw.gid
+        gr.members = [pw.name]
+        gr.passwd = 'x'
+        gmap.Add(gr)
+
     return gmap
 
   def expand_groups(self, conjur_group):
-      print("keys", self.group_cache.keys(), "group", conjur_group.id)
-      if conjur_group.id in self.group_cache:
-          return self.group_cache[conjur_group.id]
+      if conjur_group.id == 'security_admin':
+          return []
+
+      print("keys", self._group_cache.keys(), "group", conjur_group.id)
+      if conjur_group.id in self._group_cache:
+          return self._group_cache[conjur_group.id]
 
       users = set()
       members = conjur_group.members()
@@ -246,7 +261,7 @@ class ConjurSource(source.Source):
           assert(child_conjur_group.exists())
           users.update(self.expand_groups(child_conjur_group))
 
-      self.group_cache[conjur_group.id] = users
+      self._group_cache[conjur_group.id] = users
 
       return list(users)
 
