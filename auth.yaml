@@ -1,0 +1,50 @@
+---
+users:
+ woodrow:
+  active: true
+  human: true
+  uid: 2000
+  gid: 2000
+  gecos: ""
+  homedir: "/pay/home/woodrow" # could implicitly generate these if we establish convention
+  shell: "/bin/bash"
+  group_memberships:
+   - member_of: risk
+   - member_of: sudoers
+     not_before: 2015-01-01T00:00:00
+     not_after: 2016-01-01T00:00:00
+  sshkeys:
+   - "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQDC2ulxzJ1ejKGrYilywiAqYO19SRatEjZsde1KnL8SI1/oynahgtD1seRhTEmvHfFxi7eTyf2yw5EXTncHVHWHu6zdGC4wGR398vK/zD6bNCqHY995XwBArUjXJQ5xm8Rsy0v8//vKF0uE50vY0COfBZFOC/Lf3M77lTlnnp99zUE9csPbu9DSDaA/4y8uog0kgDzePHLt1GyJYy3RLXgnqiM1hzVcaWMUhL1M+HpntiNGtaWP34qdw8TH0a5krsXHw3+rHcF8L+KYEw+3/YBUea5+LH1N9Z5BrrMoJ5K4H8P4qeC2vVhPmLlqYmz41CoBqSdeAIimkFeZY7PxY+xlPQB/iMJsmZlprZDSFI9pdQbRJGRX5ZOhv0UAtm4iPp6a0qUReB1iXhHtPqt6GZ2/1Bpco3sVCJO9eT8ws19NGnDESw2eDvUmEnd5jF0my9r+fAx3igFkQOwMOqbOXKWz1aHOI+Lkb5qmBjzy9pfR5/LElLFFN9VrdOxLpRuLfF5m23DnatLvmApOjkz74KGMCHChVHXRtPfENXQOHvarnI21siINKlzfFMst817K5VVk4Zt5jADA4jO6PcY5sPlbv3hNj5czorjJS8dXvRoNbeBOGDTkkPjDu875d4mJ0zG39hymjmGiKyrcvnuZH1V/LSobzlplGxZP1HGCl4sTcQ== woodrow+stripe@woodrow-x200"
+#
+groups:
+ sudoers:
+  active: true
+  posix_group: true
+  gid: 30000
+  group_memberships: []
+ risk_admin:
+  active: true
+  posix_group: false
+  group_memberships: []
+ security:
+  active: true
+  posix_group: false
+  group_memberships:
+  - member_of: sudoers
+  - member_of: risk_admin
+    not_before: 2015-01-01T00:00:00
+    not_after: 2016-01-01T00:00:00
+  - member_of: unshortenable_group_name
+ unshortenable_group_name:
+  active: true
+  posix_name: 'unshort_group'
+  posix_group: true
+  gid: 30001
+  group_memberships: []
+#
+config:
+ system_uidgid_range: [0, 500]
+ local_uidgid_range: [1000, 1999]
+ authyaml_user_uidgid_range: [2000, 29999]
+ authyaml_group_gid_range: [30000, 60000]
+

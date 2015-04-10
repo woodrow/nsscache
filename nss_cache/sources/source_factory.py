@@ -51,9 +51,11 @@ def RegisterImplementation(source):
 # Discover all the known implementations of sources. 
 from nss_cache.sources import httpsource
 from nss_cache.sources import ldapsource
+from nss_cache.sources import authyamlsource
 
 httpsource.RegisterImplementation(RegisterImplementation)
 ldapsource.RegisterImplementation(RegisterImplementation)
+authyamlsource.RegisterImplementation(RegisterImplementation)
 
 # Don't load the zsync source if zsync python module isn't there.
 try:
